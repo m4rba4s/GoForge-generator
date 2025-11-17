@@ -1,0 +1,444 @@
+# SQL Injection - Comprehensive Testing Profile
+# Profile for testing SQL injection vulnerabilities across multiple database types
+
+profile:
+  name: "SQL Injection - Comprehensive"
+  version: "1.0.0"
+  description: "Full SQL injection testing suite for MySQL, PostgreSQL, MSSQL, and Oracle"
+  author: "Payload Forge Security Team"
+  tags:
+    - sqli
+    - injection
+    - database
+    - comprehensive
+
+# Target configuration
+target:
+  # Base URL - can be overridden via CLI
+  url: "https://example.com/api/login"
+
+  # HTTP method
+  method: "POST"
+
+  # Additional endpoints to test
+  endpoints:
+    - "/api/login"
+    - "/api/search"
+    - "/api/users"
+    - "/api/products"
+
+  # HTTP headers
+  headers:
+    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    Accept: "application/json, text/plain, */*"
+    Content-Type: "application/json"
+    Accept-Language: "en-US,en;q=0.9"
+
+  # Query parameters ({{payload}} will be replaced with actual payload)
+  query_params:
+    id: "{{payload}}"
+    search: "{{payload}}"
+
+  # Request body template (JSON)
+  body_template: |
+    {
+      "username": "{{payload}}",
+      "password": "test123"
+    }
+
+  # Authentication (use environment variables for sensitive data)
+  auth:
+    type: "bearer"
+    token: "${API_TOKEN}"
+
+  # TLS configuration
+  tls:
+    insecure_skip_verify: false
+    min_version: 771  # TLS 1.2
+
+  # Rate limiting to avoid overloading target
+  rate_limit:
+    requests_per_second: 10
+    burst: 20
+    delay: "100ms"  # Fixed delay between requests
+
+# Payload generation configuration
+generators:
+  - name: "sql_injection"
+    enabled: true
+    priority: 1
+
+    config:
+      # Database types to generate payloads for
+      databases:
+        - mysql
+        - postgresql
+        - mssql
+        - oracle
+
+      # SQL injection techniques
+      techniques:
+        - union      # UNION-based injection
+        - boolean    # Boolean-based blind
+        - time       # Time-based blind
+        - error      # Error-based
+        - stacked    # Stacked queries
+
+      # Complexity level (1-10)
+      # Low (1-3): Basic payloads
+      # Medium (4-7): Standard payloads with some obfuscation
+      # High (8-10): Advanced payloads with heavy obfuscation
+      complexity: 8
+
+      # Maximum payloads per technique
+      max_per_technique: 50
+
+# Mutation strategies
+mutators:
+  # Case variation - bypasses case-sensitive filters
+  - name: "case_variation"
+    enabled: true
+    priority: 1
+    config:
+      strategies:
+        - random_case
+        - upper_lower_alternate
+        - all_upper
+        - all_lower
+
+  # Encoding - bypasses input filters
+  - name: "encoding"
+    enabled: true
+    priority: 2
+    config:
+      encodings:
+        - url
+        - double_url
+        - unicode
+        - hex
+
+      # Chain encodings (e.g., hex -> url)
+      chain_encodings: true
+      max_chain_depth: 2
+
+  # WAF bypass techniques
+  - name: "waf_bypass"
+    enabled: true
+    priority: 3
+    config:
+      techniques:
+        - comment_injection       # /**/ comments
+        - whitespace_manipulation # Tabs, newlines
+        - null_byte_injection     # \x00
+        - character_substitution  # = -> LIKE
+        - sql_obfuscation         # CHAR(), HEX()
+        - hpp                     # HTTP Parameter Pollution
+
+      # Apply all techniques or sample randomly
+      apply_all: false
+      sample_size: 3
+
+  # Null byte injection
+  - name: "null_byte"
+    enabled: true
+    priority: 4
+    config:
+      positions:
+        - end      # payload\x00
+        - start    # \x00payload
+        - middle   # pay\x00load
+
+  # Parameter pollution
+  - name: "parameter_pollution"
+    enabled: true
+    priority: 5
+    config:
+      strategies:
+        - duplicate       # ?id=1&id=payload
+        - array_notation  # ?id[]=1&id[]=payload
+        - mixed           # Combine both
+
+# Encoding schemes
+encoders:
+  - name: "url"
+    enabled: true
+    config:
+      encode_all: false  # Only encode special characters
+
+  - name: "base64"
+    enabled: false  # Typically not useful for SQLi
+
+  - name: "hex"
+    enabled: true
+    config:
+      prefix: "0x"  # SQL hex prefix
+
+  - name: "unicode"
+    enabled: true
+    config:
+      format: "\\u{code}"
+
+# Payload delivery
+emitter:
+  type: "http"
+
+  config:
+    # Request timeout
+    timeout: "30s"
+
+    # Retry failed requests
+    retry: 3
+    retry_delay: "1s"
+
+    # Connection pooling
+    max_idle_conns: 100
+    max_idle_conns_per_host: 10
+    idle_conn_timeout: "90s"
+
+    # Follow redirects
+    follow_redirects: true
+    max_redirects: 5
+
+    # User agent rotation
+    user_agents:
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+      - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+
+    rotate_user_agent: false
+
+# Response analysis
+analyzers:
+  # Error-based detection
+  - name: "error_based"
+    enabled: true
+    priority: 1
+
+    config:
+      # Database error patterns to detect
+      patterns:
+        mysql:
+          - "SQL syntax.*MySQL"
+          - "Warning.*mysql_.*"
+          - "MySqlException"
+          - "valid MySQL result"
+          - "check the manual that corresponds to your (MySQL|MariaDB) server version"
+
+        postgresql:
+          - "PostgreSQL.*ERROR"
+          - "Warning.*pg_.*"
+          - "valid PostgreSQL result"
+          - "Npgsql\\."
+          - "PG::SyntaxError"
+
+        mssql:
+          - "Driver.*SQL[\\-\\_\\ ]*Server"
+          - "OLE DB.*SQL Server"
+          - "\\bSQL Server[^&lt;&quot;]+Driver"
+          - "Warning.*mssql_.*"
+          - "\\bSQL Server[^&lt;&quot;]+[0-9a-fA-F]{8}"
+          - "System\\.Data\\.SqlClient\\.SqlException"
+          - "(?s)Exception.*\\bWRong number or types of parameters or wrong return type"
+
+        oracle:
+          - "\\bORA-\\d{5}"
+          - "Oracle error"
+          - "Oracle.*Driver"
+          - "Warning.*oci_.*"
+          - "Warning.*ora_.*"
+
+      # Confidence scoring
+      min_confidence: 0.7
+
+      # Extract additional info from errors
+      extract_version: true
+      extract_database_name: true
+
+  # Time-based detection
+  - name: "time_based"
+    enabled: true
+    priority: 2
+
+    config:
+      # Expected delay threshold
+      threshold: "5s"
+
+      # Baseline comparison (measure normal response time first)
+      use_baseline: true
+      baseline_requests: 3
+
+      # Statistical analysis
+      min_time_difference: "4s"  # Must be at least 4s slower
+      confidence_multiplier: 1.2  # Response time must be 1.2x baseline
+
+  # Boolean-based blind detection
+  - name: "blind_detection"
+    enabled: true
+    priority: 3
+
+    config:
+      # Compare true vs false conditions
+      compare_responses: true
+
+      # What to compare
+      compare_attributes:
+        - content_length
+        - status_code
+        - response_body
+        - headers
+
+      # Difference threshold
+      min_difference: 0.1  # 10% difference
+
+  # Pattern matching
+  - name: "pattern_matcher"
+    enabled: true
+    priority: 4
+
+    config:
+      patterns:
+        # Success indicators
+        - pattern: "(?i)(union.*select|information_schema)"
+          severity: "high"
+          description: "UNION-based SQL injection successful"
+
+        - pattern: "(?i)(root@|admin@|user@localhost)"
+          severity: "critical"
+          description: "Database user information leaked"
+
+        - pattern: "(?i)(database\\(\\)|version\\(\\)|@@version)"
+          severity: "high"
+          description: "Database metadata exposed"
+
+      # Negative patterns (indicators of successful filtering)
+      negative_patterns:
+        - "Invalid input"
+        - "Access denied"
+        - "Forbidden"
+
+  # Content length analysis
+  - name: "content_length"
+    enabled: true
+    priority: 5
+
+    config:
+      # Detect significant size changes
+      threshold_percent: 20  # 20% difference from baseline
+
+# Execution configuration
+execution:
+  # Execution mode
+  # - sequential: One payload at a time (safe, slow)
+  # - concurrent: Multiple payloads in parallel (fast, may trigger IDS)
+  # - adaptive: Start slow, increase speed if no issues
+  # - stealth: Random delays, low profile
+  mode: "adaptive"
+
+  # Worker pool size (for concurrent mode)
+  workers: 10
+
+  # Stealth mode settings
+  stealth:
+    enabled: false
+    min_delay: "1s"
+    max_delay: "5s"
+    random_user_agent: true
+    random_order: true  # Randomize payload order
+
+  # Stop conditions
+  stop_on_first_vulnerability: false
+  stop_on_error_rate: 0.5  # Stop if 50% of requests fail
+  max_duration: "1h"       # Maximum test duration
+
+  # Safety limits
+  max_payloads: 1000
+  max_requests: 5000
+
+# Output configuration
+output:
+  # Output format: json, yaml, html, markdown, csv
+  format: "json"
+
+  # Output file (use timestamp placeholder)
+  file: "results/sqli_test_${timestamp}.json"
+
+  # Console output
+  console:
+    enabled: true
+    verbose: false
+    colors: true
+    show_progress: true
+
+  # What to include in output
+  include:
+    - payloads
+    - responses
+    - vulnerabilities
+    - statistics
+    - timeline
+
+  # Exclude sensitive data
+  exclude:
+    - auth_tokens
+    - cookies
+    - api_keys
+
+# Integration with external systems
+integrations:
+  # SIEM export
+  siem:
+    enabled: false
+    endpoint: "https://siem.example.com/api/ingest"
+    format: "json"
+    auth:
+      type: "api_key"
+      header: "X-API-Key"
+      token: "${SIEM_API_KEY}"
+
+  # Webhook notifications
+  webhook:
+    enabled: false
+    url: "https://hooks.example.com/payload-forge"
+    events:
+      - vulnerability_found
+      - test_completed
+      - test_failed
+
+  # Slack notifications
+  slack:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#security-alerts"
+    notify_on_vulnerability: true
+
+# Safety and compliance
+safety:
+  # Require explicit confirmation for production targets
+  require_confirmation: true
+
+  # Whitelist (only these targets allowed)
+  whitelist:
+    - "*.example.com"
+    - "192.168.1.*"
+    - "10.0.0.*"
+
+  # Blacklist (never test these)
+  blacklist:
+    - "*.gov"
+    - "*.mil"
+    - "*.edu"
+    - "*.bank"
+
+  # Audit logging
+  audit:
+    enabled: true
+    log_file: "audit/sqli_test_${timestamp}.log"
+    log_level: "info"
+    include_payloads: true
+
+# Metadata
+metadata:
+  created_at: "2024-01-15T10:00:00Z"
+  updated_at: "2024-01-15T10:00:00Z"
+  tested_targets: 0
+  vulnerabilities_found: 0

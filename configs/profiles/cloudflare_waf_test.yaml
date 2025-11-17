@@ -1,0 +1,437 @@
+# Cloudflare WAF & Security Headers Testing Profile
+# Tests your own Cloudflare-protected infrastructure
+# LEGAL: Testing your own infrastructure only
+
+profile:
+  name: "Cloudflare WAF & Headers Audit"
+  version: "1.0.0"
+  description: "Comprehensive Cloudflare WAF and security headers testing"
+  author: "Security Team"
+  tags:
+    - cloudflare
+    - waf
+    - security-headers
+    - infrastructure-audit
+
+# Target configuration - REPLACE WITH YOUR DOMAIN
+target:
+  url: "https://your-domain.com"
+  method: "GET"
+
+  # Multiple endpoints to test
+  endpoints:
+    - "/"
+    - "/api/login"
+    - "/api/search"
+    - "/admin"
+    - "/api/users"
+
+  headers:
+    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    Accept: "text/html,application/json"
+    Accept-Language: "en-US,en;q=0.9"
+
+  # Conservative rate limiting to avoid triggering DDoS protection
+  rate_limit:
+    requests_per_second: 2
+    burst: 5
+    delay: "500ms"
+
+# Test phases
+test_phases:
+
+  # Phase 1: Security Headers Check
+  security_headers:
+    enabled: true
+    description: "Verify security headers are properly configured"
+
+    expected_headers:
+      - name: "Strict-Transport-Security"
+        required: true
+        min_value: "max-age=31536000"
+        description: "HSTS should be enabled with long max-age"
+
+      - name: "X-Content-Type-Options"
+        required: true
+        expected_value: "nosniff"
+        description: "Prevent MIME sniffing"
+
+      - name: "X-Frame-Options"
+        required: true
+        expected_values: ["DENY", "SAMEORIGIN"]
+        description: "Clickjacking protection"
+
+      - name: "X-XSS-Protection"
+        required: false
+        expected_value: "1; mode=block"
+        description: "Legacy XSS protection (optional with CSP)"
+
+      - name: "Content-Security-Policy"
+        required: true
+        description: "CSP should be configured"
+        min_directives: 3
+
+      - name: "Referrer-Policy"
+        required: true
+        expected_values: ["no-referrer", "strict-origin-when-cross-origin"]
+        description: "Control referrer information"
+
+      - name: "Permissions-Policy"
+        required: false
+        description: "Feature policy (optional)"
+
+      # Cloudflare-specific headers
+      - name: "CF-Ray"
+        required: true
+        description: "Cloudflare Ray ID should be present"
+
+      - name: "CF-Cache-Status"
+        required: false
+        description: "Cache status header"
+
+      - name: "Server"
+        required: true
+        not_contain: ["Apache", "nginx", "IIS"]
+        description: "Server header should be obscured"
+
+  # Phase 2: WAF Rule Testing
+  waf_rules:
+    enabled: true
+    description: "Test Cloudflare WAF rules"
+
+    # Generate payloads but expect them to be blocked
+    expect_blocked: true
+    success_status_codes: [403, 406, 503, 520]
+
+    generators:
+      - name: "sql_injection"
+        enabled: true
+        config:
+          databases: ["mysql", "postgresql", "mssql"]
+          techniques: ["union", "boolean", "error"]
+          complexity: 6
+          max_count: 20
+
+      - name: "xss"
+        enabled: true
+        config:
+          contexts: ["html", "javascript", "attribute"]
+          complexity: 6
+          max_count: 20
+
+      - name: "path_traversal"
+        enabled: true
+        config:
+          complexity: 5
+          max_count: 15
+
+      - name: "command_injection"
+        enabled: true
+        config:
+          complexity: 5
+          max_count: 15
+
+    mutators:
+      - name: "waf_bypass"
+        enabled: true
+        priority: 1
+        config:
+          techniques:
+            - comment_injection
+            - case_obfuscation
+            - encoding
+            - null_byte_injection
+
+      - name: "encoding"
+        enabled: true
+        priority: 2
+        config:
+          encodings: ["url", "double_url", "unicode"]
+
+  # Phase 3: Rate Limiting Check
+  rate_limiting:
+    enabled: true
+    description: "Test Cloudflare rate limiting"
+
+    test_scenarios:
+      - name: "Normal traffic"
+        requests: 10
+        rate: 1
+        expect: "success"
+
+      - name: "Moderate burst"
+        requests: 50
+        rate: 5
+        expect: "success or rate_limit"
+
+      - name: "High volume"
+        requests: 100
+        rate: 10
+        expect: "rate_limit"
+
+  # Phase 4: Bot Detection
+  bot_detection:
+    enabled: true
+    description: "Test Cloudflare bot detection"
+
+    user_agents:
+      - name: "Normal browser"
+        value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
+        expect: "allow"
+
+      - name: "Suspicious bot"
+        value: "Python-urllib/3.9"
+        expect: "challenge or block"
+
+      - name: "Known scanner"
+        value: "sqlmap/1.0"
+        expect: "block"
+
+      - name: "Security tool"
+        value: "PayloadForge/1.0"
+        expect: "challenge"
+
+  # Phase 5: TLS/SSL Configuration
+  tls_check:
+    enabled: true
+    description: "Verify TLS configuration"
+
+    requirements:
+      min_tls_version: "1.2"
+      preferred_tls_version: "1.3"
+
+      strong_ciphers_only: true
+
+      expected_protocols:
+        - "TLSv1.3"
+        - "TLSv1.2"
+
+      forbidden_protocols:
+        - "TLSv1.0"
+        - "TLSv1.1"
+        - "SSLv3"
+        - "SSLv2"
+
+# Analyzers for Cloudflare-specific responses
+analyzers:
+
+  - name: "cloudflare_waf_analyzer"
+    enabled: true
+    priority: 1
+
+    config:
+      # Cloudflare WAF signatures
+      waf_signatures:
+        - "Attention Required"
+        - "Cloudflare Ray ID"
+        - "Error 1020"
+        - "Access denied"
+        - "Checking your browser"
+
+      # Status codes indicating WAF block
+      waf_status_codes: [403, 406, 503, 520, 1020]
+
+      # Check for challenge pages
+      challenge_indicators:
+        - "cf-browser-verification"
+        - "cf-challenge-form"
+        - "cf_chl_jschl_tk"
+
+  - name: "header_analyzer"
+    enabled: true
+    priority: 2
+
+    config:
+      check_security_headers: true
+      check_cloudflare_headers: true
+
+      # Score headers
+      scoring:
+        hsts: 10
+        csp: 10
+        x_content_type_options: 5
+        x_frame_options: 5
+        referrer_policy: 5
+
+  - name: "response_timing_analyzer"
+    enabled: true
+    priority: 3
+
+    config:
+      # Cloudflare usually adds minimal latency
+      expected_overhead_ms: 50
+
+      # Check for rate limiting delays
+      detect_rate_limiting: true
+      rate_limit_threshold_ms: 1000
+
+# Execution configuration
+execution:
+  mode: "sequential"
+  workers: 1
+
+  # Conservative approach
+  stealth:
+    enabled: true
+    min_delay: "1s"
+    max_delay: "3s"
+    random_user_agent: false
+
+  # Stop conditions
+  stop_on_first_vulnerability: false
+  stop_on_error_rate: 0.8
+  max_duration: "30m"
+
+  # Safety limits
+  max_payloads: 200
+  max_requests: 300
+
+# Output configuration
+output:
+  format: "json"
+  file: "results/cloudflare_audit_${timestamp}.json"
+
+  console:
+    enabled: true
+    verbose: true
+    colors: true
+    show_progress: true
+
+  # Detailed reporting
+  include:
+    - security_headers_report
+    - waf_effectiveness_report
+    - rate_limiting_report
+    - tls_configuration_report
+    - recommendations
+
+  # Generate comparison report
+  generate_reports:
+    - type: "security_headers"
+      format: "html"
+      file: "results/headers_report_${timestamp}.html"
+
+    - type: "waf_analysis"
+      format: "markdown"
+      file: "results/waf_report_${timestamp}.md"
+
+    - type: "recommendations"
+      format: "txt"
+      file: "results/recommendations_${timestamp}.txt"
+
+# Integration with security tools
+integrations:
+
+  # Export to SIEM
+  siem:
+    enabled: false
+    endpoint: "https://your-siem.com/api/ingest"
+
+  # Webhook notifications
+  webhook:
+    enabled: false
+    url: "https://your-webhook.com/cloudflare-audit"
+    events:
+      - test_completed
+      - security_issue_found
+
+  # Slack notifications
+  slack:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#security-alerts"
+    notify_on:
+      - missing_headers
+      - waf_bypass
+      - tls_issues
+
+# Safety and compliance
+safety:
+  require_confirmation: true
+
+  # Only test your own domains
+  whitelist:
+    - "your-domain.com"
+    - "*.your-domain.com"
+    - "staging.your-domain.com"
+
+  blacklist:
+    - "*.gov"
+    - "*.mil"
+
+  audit:
+    enabled: true
+    log_file: "audit/cloudflare_test_${timestamp}.log"
+    log_level: "info"
+    include_payloads: true
+    include_responses: true
+
+# Expected results and scoring
+expected_results:
+
+  security_headers:
+    passing_score: 80
+    critical_headers: ["HSTS", "CSP", "X-Content-Type-Options"]
+
+  waf_protection:
+    expected_block_rate: 0.95
+    critical_payloads_blocked: true
+
+  rate_limiting:
+    should_exist: true
+    reasonable_limits: true
+
+  tls_configuration:
+    grade: "A"
+    min_acceptable_grade: "B"
+
+# Recommendations template
+recommendations:
+
+  headers:
+    hsts:
+      missing: "Add Strict-Transport-Security header with max-age=31536000"
+      weak: "Increase HSTS max-age to at least 1 year"
+
+    csp:
+      missing: "Implement Content-Security-Policy"
+      weak: "Strengthen CSP with stricter directives"
+
+    x_frame_options:
+      missing: "Add X-Frame-Options: DENY"
+
+  waf:
+    low_block_rate: "Review and strengthen WAF rules"
+    bypasses_found: "Critical: WAF bypass techniques working"
+
+  rate_limiting:
+    not_configured: "Configure rate limiting rules"
+    too_permissive: "Reduce rate limiting thresholds"
+
+  tls:
+    weak_protocols: "Disable TLS 1.0 and 1.1"
+    weak_ciphers: "Remove weak cipher suites"
+
+# Notes for Red Patron testing
+notes: |
+  This profile is specifically designed for testing Red Patron's
+  Cloudflare configuration. It will:
+
+  1. Check all security headers are properly configured
+  2. Test WAF effectiveness against common attacks
+  3. Verify rate limiting is working
+  4. Check TLS/SSL configuration
+  5. Test bot detection capabilities
+
+  IMPORTANT:
+  - Replace "your-domain.com" with actual Red Patron domain
+  - Run this during maintenance window or low-traffic period
+  - Review results with client
+  - Document any issues found
+  - Provide remediation recommendations
+
+  Expected outcome:
+  - Most payloads should be BLOCKED by Cloudflare WAF
+  - All security headers should be present
+  - TLS configuration should be grade A
+  - Rate limiting should trigger on high volume
